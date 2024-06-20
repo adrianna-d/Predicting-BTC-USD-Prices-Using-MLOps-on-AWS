@@ -1,17 +1,39 @@
 import os
-import numpy as np
 from flask import Flask, request, jsonify
+import numpy as np
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
 import joblib
+import requests
+
+app = Flask(__name__)
+
 # Load model and scaler for prediction
 model_path = 'saved_models/crypto_price_prediction_model.keras'
 scaler_path = 'saved_models/crypto_price_prediction_scaler.pkl'
 
-model = load_model(model_path)
-scaler = joblib.load(scaler_path)
+# Function to fetch cryptocurrency data
+def fetch_crypto_data():
+    try:
+        url = 'https://min-api.cryptocompare.com/data/v2/histohour'
+        params = {
+            'fsym': 'BTC',
+            'tsym': 'USD',
+            'limit': 2000,   # Number of data points
+            'aggregate': 1,  # Hourly data
+        }
+        response = requests.get(url, params=params)
+        data = response.json()['Data']['Data']  # Extracting the historical data
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
+    
 # Function to preprocess data
 def preprocess_data(data, window_size):
+    if not isinstance(data, list) or not isinstance(data[0], dict):
+        raise ValueError("Input data must be a list of dictionaries")
+
     prices = [entry['close'] for entry in data]
 
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -37,25 +59,37 @@ def make_predictions(model, data, scaler, window_size, num_predictions):
     for _ in range(num_predictions):
         prediction = model.predict(last_sequence)[0, 0]
         predictions.append(prediction)
-        last_sequence = np.append(last_sequence[:, 1:, :], [[prediction]], axis=1)
+        # Reshape last_sequence correctly after appending prediction
+        last_sequence = np.append(last_sequence[:, 1:, :], np.array([[prediction]]).reshape(1, 1, 1), axis=1)
 
     predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
     return predictions.flatten()
-app = Flask(__name__)
-@app.route('/predict', methods=['POST'])
+
+@app.route('/predict', methods=['GET'])
 def predict():
-    content = request.json
-    data = content['data']  # Assuming data is passed as JSON with key 'data'
-    window_size = 10  # Adjust as per your model's window size
-    num_predictions = 10  # Adjust as needed
+    data = fetch_crypto_data()
 
-    # Preprocess data
-    X, y, scaler = preprocess_data(data, window_size)
+    if data:
+        window_size = 10  # Adjust according to your model's window size
+        num_predictions = 10  # Number of predictions you want to return
 
-    # Make predictions
-    predictions = make_predictions(model, data, scaler, window_size, num_predictions)
+        # Preprocess data
+        X, y, scaler = preprocess_data(data, window_size)
 
-    # Return predictions as JSON response
-    return jsonify({'predictions': predictions.tolist()})
+        # Load model and scaler for prediction
+        model = load_model(model_path)
+        scaler = joblib.load(scaler_path)
+
+        # Make predictions
+        predictions = make_predictions(model, data, scaler, window_size, num_predictions)
+
+        # Format predictions
+        predictions_list = predictions.tolist()
+        prediction_dict = {f"Prediction {i+1}": predictions_list[i] for i in range(len(predictions_list))}
+
+        return jsonify(prediction_dict)
+    else:
+        return jsonify({"error": "Failed to fetch data. Check your internet connection or API availability."})
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True)
