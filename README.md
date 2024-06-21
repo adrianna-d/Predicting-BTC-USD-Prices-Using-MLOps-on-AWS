@@ -18,7 +18,7 @@ $ pip install ...
 
 ```
 	
-### start
+#### start
 To run this project, run the code_model_gru.py file, and then app.py 
 
 ```
@@ -26,7 +26,7 @@ $ python code_model_gru.py
 $ python app.py
 locally for Postman: http://127.0.0.1:5000/predict
 
-## Files:
+## Files
 
 app.py - code for running flask and predictions in postman, it was run on vs code so in case you run it on other programmes add "import sqlite3 " or another db reader. It is not included in the requirements file!
 
