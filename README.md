@@ -39,5 +39,8 @@ train.py - trains the mode and saves it in mlflow locally (basically code_model_
 saved_models - our saved models :D 
 
 requirements.txt - all the pip install you will ever need (done in vs code) 
+<<<<<<< HEAD
 
 crypto_predictions.db - database that stores predictions and last 30 entries for each data fetch 
+=======
+>>>>>>> e78c380b738735b752573a19a1a8a5f57f470fa9
