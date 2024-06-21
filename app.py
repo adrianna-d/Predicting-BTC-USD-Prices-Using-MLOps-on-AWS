@@ -5,12 +5,31 @@ from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 import requests
+from sqlalchemy import create_engine, Column, Integer, Float, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Load model and scaler for prediction
+# Define paths for model and scaler
 model_path = 'saved_models/crypto_price_prediction_model.keras'
 scaler_path = 'saved_models/crypto_price_prediction_scaler.pkl'
+
+
+# Define SQLite database
+engine = create_engine('sqlite:///crypto_predictions.db', echo=True)
+Base = declarative_base()
+
+# Define ORM model for predictions
+class Prediction(Base):
+    __tablename__ = 'predictions'
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.now)
+    prediction_value = Column(Float)
+
+Base.metadata.create_all(engine)
 
 # Function to fetch cryptocurrency data
 def fetch_crypto_data():
@@ -83,6 +102,9 @@ def predict():
         # Make predictions
         predictions = make_predictions(model, data, scaler, window_size, num_predictions)
 
+        # Store predictions in SQLite database
+        store_predictions(predictions)
+
         # Format predictions
         predictions_list = predictions.tolist()
         prediction_dict = {f"Prediction {i+1}": predictions_list[i] for i in range(len(predictions_list))}
@@ -91,5 +113,19 @@ def predict():
     else:
         return jsonify({"error": "Failed to fetch data. Check your internet connection or API availability."})
 
+def store_predictions(predictions):
+    # Create session to interact with database
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # Store each prediction in the database
+    for prediction_value in predictions:
+        prediction = Prediction(prediction_value=prediction_value)
+        session.add(prediction)
+
+    # Commit changes to the database
+    session.commit()
+    session.close()
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000)
