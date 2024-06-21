@@ -16,10 +16,17 @@ app = Flask(__name__)
 model_path = 'saved_models/crypto_price_prediction_model.keras'
 scaler_path = 'saved_models/crypto_price_prediction_scaler.pkl'
 
-
 # Define SQLite database
 engine = create_engine('sqlite:///crypto_predictions.db', echo=True)
 Base = declarative_base()
+
+# Define ORM model for original data
+class OriginalData(Base):
+    __tablename__ = 'original_data'
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.now)
+    close_price = Column(Float)
 
 # Define ORM model for predictions
 class Prediction(Base):
@@ -29,7 +36,28 @@ class Prediction(Base):
     timestamp = Column(DateTime, default=datetime.now)
     prediction_value = Column(Float)
 
+# Create all tables defined in Base
 Base.metadata.create_all(engine)
+
+# Function to store original data
+def store_original_data(data):
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        # Store only the last 30 entries
+        for entry in data[-30:]:
+            original_entry = OriginalData(timestamp=datetime.fromtimestamp(entry['time']),
+                                          close_price=entry['close'])
+            session.add(original_entry)
+
+        # Commit changes to the database
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Error storing original data: {e}")
+    finally:
+        session.close()
 
 # Function to fetch cryptocurrency data
 def fetch_crypto_data():
@@ -43,11 +71,15 @@ def fetch_crypto_data():
         }
         response = requests.get(url, params=params)
         data = response.json()['Data']['Data']  # Extracting the historical data
+        
+        # Store only the last 30 entries in the database
+        store_original_data(data)
+
         return data
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data: {e}")
         return None
-    
+
 # Function to preprocess data
 def preprocess_data(data, window_size):
     if not isinstance(data, list) or not isinstance(data[0], dict):
@@ -114,18 +146,20 @@ def predict():
         return jsonify({"error": "Failed to fetch data. Check your internet connection or API availability."})
 
 def store_predictions(predictions):
-    # Create session to interact with database
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Store each prediction in the database
-    for prediction_value in predictions:
-        prediction = Prediction(prediction_value=prediction_value)
-        session.add(prediction)
+    try:
+        for prediction_value in predictions:
+            prediction_entry = Prediction(prediction_value=prediction_value)
+            session.add(prediction_entry)
 
-    # Commit changes to the database
-    session.commit()
-    session.close()
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Error storing predictions: {e}")
+    finally:
+        session.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
